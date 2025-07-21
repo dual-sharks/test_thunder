@@ -1,0 +1,183 @@
+services:
+  # Ollama service for AI model
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # DuckDB service with Python environment
+  duckdb-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.duckdb
+    container_name: duckdb-service
+    ports:
+      - "8888:8888"  # Jupyter notebook
+      - "5000:5000"  # Flask API
+    volumes:
+      - ./data:/app/data:ro  # Mount CSV data as read-only
+      - duckdb_data:/app/db  # Persistent DuckDB storage
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # Redis for Dify
+  redis:
+    image: redis:7-alpine
+    container_name: dify-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # PostgreSQL for Dify
+  postgres:
+    image: postgres:15-alpine
+    container_name: dify-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=dify
+      - POSTGRES_USER=dify
+      - POSTGRES_PASSWORD=dify123456
+      - POSTGRES_HOST_AUTH_METHOD=trust
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dify -d dify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # Dify API service
+  dify-api:
+    image: langgenius/dify-api:latest
+    container_name: dify-api
+    ports:
+      - "5001:5001"
+    environment:
+      - MODE=api
+      - LOG_LEVEL=INFO
+      - SECRET_KEY=sk-9f73s3ljTXVcMT3Blb3ljTqtsKiGHXVcMT3BlbkFJLK7U
+      - DATABASE_URL=postgresql://dify:dify123456@postgres:5432/dify
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - WEB_API_CORS_ALLOW_ORIGINS=*
+      - CONSOLE_CORS_ALLOW_ORIGINS=*
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=storage
+      - VECTOR_STORE=weaviate
+      - WEAVIATE_ENDPOINT=http://weaviate:8080
+      - WEAVIATE_API_KEY=WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih
+    volumes:
+      - dify_app_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # Dify Worker
+  dify-worker:
+    image: langgenius/dify-api:latest
+    container_name: dify-worker
+    environment:
+      - MODE=worker
+      - LOG_LEVEL=INFO
+      - SECRET_KEY=sk-9f73s3ljTXVcMT3Blb3ljTqtsKiGHXVcMT3BlbkFJLK7U
+      - DATABASE_URL=postgresql://dify:dify123456@postgres:5432/dify
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=storage
+      - VECTOR_STORE=weaviate
+      - WEAVIATE_ENDPOINT=http://weaviate:8080
+      - WEAVIATE_API_KEY=WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih
+    volumes:
+      - dify_app_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dify-api:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # Dify Web Interface
+  dify-web:
+    image: langgenius/dify-web:latest
+    container_name: dify-web
+    ports:
+      - "3000:3000"
+    environment:
+      - CONSOLE_API_URL=http://localhost:5001
+      - APP_API_URL=http://localhost:5001
+    depends_on:
+      - dify-api
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # Weaviate vector database for Dify
+  weaviate:
+    image: semitechnologies/weaviate:1.21.8
+    container_name: dify-weaviate
+    ports:
+      - "8080:8080"
+    environment:
+      - QUERY_DEFAULTS_LIMIT=25
+      - AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false
+      - PERSISTENCE_DATA_PATH=/var/lib/weaviate
+      - DEFAULT_VECTORIZER_MODULE=none
+      - CLUSTER_HOSTNAME=node1
+      - AUTHENTICATION_APIKEY_ENABLED=true
+      - AUTHENTICATION_APIKEY_ALLOWED_KEYS=WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih
+      - AUTHENTICATION_APIKEY_USERS=hello@dify.ai
+      - AUTHORIZATION_ADMINLIST_ENABLED=true
+      - AUTHORIZATION_ADMINLIST_USERS=hello@dify.ai
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+volumes:
+  ollama_data:
+  duckdb_data:
+  redis_data:
+  postgres_data:
+  dify_app_storage:
+  weaviate_data:
+
+networks:
+  ai_network:
+    driver: bridge

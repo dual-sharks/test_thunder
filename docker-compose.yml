@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  # Ollama service for AI model
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+  # DuckDB service with Python environment
+  duckdb-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.duckdb
+    container_name: duckdb-service
+    ports:
+      - "8888:8888"  # Jupyter notebook
+      - "5000:5000"  # Flask API
+    volumes:
+      - ./data:/app/data:ro  # Mount CSV data as read-only
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    networks:
+      - ai_network
+
+volumes:
+  ollama_data:
+
+networks:
+  ai_network:
+    driver: bridge
