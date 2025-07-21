@@ -2,8 +2,9 @@ import duckdb
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import requests
 import sys
+import litellm
+
 
 app = Flask(__name__)
 CORS(app)
@@ -22,30 +23,24 @@ def setup_database():
     except Exception as e:
         print(f"Error setting up database: {e}")
 
-def query_ollama(prompt, model="llama3.1"):
-    """Send query to Ollama service"""
+def query_litellm(prompt, model="gpt-4-1"):
+    print("Sending prompt to model:", prompt)
     try:
-        ollama_url = os.getenv('OLLAMA_URL', 'http://ollama:11434')
-        response = requests.post(
-            f"{ollama_url}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=360
+        response = litellm.completion(
+            model=model,
+            messages=[{"role": "user", "content": prompt}]
         )
-        print(response)
-        if response.status_code == 200:
-            return response.json().get('response', '')
-        else:
-            return f"Error: {response.status_code}"
+        return response['choices'][0]['message']['content']
     except Exception as e:
-        return f"Error connecting to Ollama: {e}"
+        print("🔥 LLM failure:", e)
+        return f"Connection Error: {e}"
+
+
+
 
 def generate_sql_from_question(question):
     """Generate SQL query from natural language question using AI"""
-   
+
     prompt = f"""
     You are a SQL expert. Given this database schema for financial transactions:
     
@@ -63,7 +58,7 @@ def generate_sql_from_question(question):
     Question: {question}
     """
     
-    response = query_ollama(prompt)
+    response = query_litellm(prompt)
     
     # Extract SQL from response
     if "```sql" in response:
@@ -86,7 +81,6 @@ def get_local_schema():
         tables = conn.execute("SHOW TABLES;").fetchall()
         for table_name_tuple in tables:
             table_name = table_name_tuple[0]
-            # Use DESCRIBE for a clean, LLM-friendly schema format
             columns_df = conn.execute(f"DESCRIBE {table_name};").df()
             schema_parts.append(f"Table '{table_name}':\n{columns_df.to_string()}\n")
         conn.close()
@@ -113,7 +107,6 @@ def execute_query():
         result = conn.execute(sql_query).fetchall()
         columns = [desc[0] for desc in conn.description]
         
-        # Convert to list of dictionaries
         rows = [dict(zip(columns, row)) for row in result]
         
         return jsonify({
@@ -154,7 +147,7 @@ def ask_question():
         Provide a clear, natural language answer to the original question. Be specific with numbers and insights.
         """
         
-        ai_response = query_ollama(response_prompt)
+        ai_response = query_litellm(response_prompt)
         
         return jsonify({
             "success": True,
@@ -168,11 +161,25 @@ def ask_question():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/test', methods=['GET'])
+def test_litellm_connection():
+    """Test connectivity to the LLM (e.g., GPT-4-1 via LiteLLM)"""
+    try:
+        response = query_litellm("Say hello!")
+        return jsonify({
+            "success": True,
+            "llm_response": response
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/summary', methods=['GET'])
 def get_summary():
     """Get a summary of the financial data"""
     try:
-        # Get basic statistics
         summary_query = """
         SELECT 
             COUNT(*) as total_transactions,

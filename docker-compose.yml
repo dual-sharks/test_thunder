@@ -1,19 +1,6 @@
 version: '3.8'
 
 services:
-  # Ollama service for AI model
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    restart: unless-stopped
-    networks:
-      - ai_network
 
   # DuckDB service with Python environment
   duckdb-service:
@@ -27,9 +14,9 @@ services:
     volumes:
       - ./data:/app/data:ro  # Mount CSV data as read-only
     environment:
-      - OLLAMA_URL=http://ollama:11434
-    depends_on:
-      - ollama
+      - LITELLM_API_BASE=https://litellm.prod-ai.riotgames.io/
+      - LITELLM_MODEL=gpt-4-1
+      - LITELLM_API_KEY=sk-RywMmYwRHCdna6UiKhiGtw
     restart: unless-stopped
     networks:
       - ai_network
