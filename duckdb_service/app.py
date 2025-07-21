@@ -1,10 +1,9 @@
 import duckdb
-import pandas as pd
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
-import json
+import sys
 
 app = Flask(__name__)
 CORS(app)
@@ -15,10 +14,9 @@ conn = duckdb.connect(':memory:')
 def setup_database():
     """Initialize the database and load CSV data"""
     try:
-        # Create table and load CSV data
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS transactions AS 
-            SELECT * FROM read_csv_auto('/app/data/sample_data.csv')
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE transactions AS
+            SELECT * FROM read_csv_auto('/app/data/sample_data_t25.csv', header=True)
         """)
         print("Database setup completed successfully")
     except Exception as e:
@@ -34,8 +32,10 @@ def query_ollama(prompt, model="llama3.1"):
                 "model": model,
                 "prompt": prompt,
                 "stream": False
-            }
+            },
+            timeout=360
         )
+        print(response)
         if response.status_code == 200:
             return response.json().get('response', '')
         else:
@@ -45,27 +45,11 @@ def query_ollama(prompt, model="llama3.1"):
 
 def generate_sql_from_question(question):
     """Generate SQL query from natural language question using AI"""
-    schema_info = """
-    Table: transactions
-    Columns:
-    - transaction_id (INTEGER): Unique identifier for each transaction
-    - date (DATE): Transaction date in YYYY-MM-DD format
-    - amount (DECIMAL): Transaction amount (positive for income, negative for expenses)
-    - category (VARCHAR): Category of the transaction (salary, food, utilities, etc.)
-    - description (VARCHAR): Description of the transaction
-    - merchant (VARCHAR): Merchant or company name
-    - account_type (VARCHAR): Type of account (checking, credit, etc.)
-    
-    Sample data:
-    transaction_id | date       | amount  | category | description | merchant | account_type
-    1             | 2025-01-15 | 1250.00 | salary   | Monthly salary payment | ABC Company | checking
-    2             | 2025-01-16 | -45.67  | food     | Grocery shopping | SuperMart | checking
-    """
-    
+   
     prompt = f"""
     You are a SQL expert. Given this database schema for financial transactions:
     
-    {schema_info}
+    {db_schema}
     
     Generate a DuckDB SQL query to answer this question: "{question}"
     
@@ -90,6 +74,27 @@ def generate_sql_from_question(question):
         sql = response.strip()
     
     return sql
+
+def get_local_schema():
+    """
+    Connects directly to the DuckDB file to get the schema.
+    This is the correct way to get context for the LLM.
+    """
+    print("\nGetting database schema locally...")
+    schema_parts = []
+    try:
+        tables = conn.execute("SHOW TABLES;").fetchall()
+        for table_name_tuple in tables:
+            table_name = table_name_tuple[0]
+            # Use DESCRIBE for a clean, LLM-friendly schema format
+            columns_df = conn.execute(f"DESCRIBE {table_name};").df()
+            schema_parts.append(f"Table '{table_name}':\n{columns_df.to_string()}\n")
+        conn.close()
+        print("✅ Schema received.")
+        return "\n".join(schema_parts)
+    except Exception as e:
+        print(f"❌ Error getting local schema: {e}", file=sys.stderr)
+        return "Could not retrieve schema."
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -127,7 +132,7 @@ def ask_question():
     try:
         data = request.get_json()
         question = data.get('question', '')
-        
+
         if not question:
             return jsonify({"error": "No question provided"}), 400
         
@@ -223,4 +228,8 @@ def get_categories():
 
 if __name__ == '__main__':
     setup_database()
+    
+    db_schema = get_local_schema()
+    print(db_schema)
+
     app.run(host='0.0.0.0', port=5000, debug=True)
