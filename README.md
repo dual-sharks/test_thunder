@@ -60,8 +60,8 @@ td25-money/
 ├── duckdb_service/
 │   ├── app.py                   # Flask API for data queries
 │   └── financial_analysis.ipynb # Jupyter notebook for analysis
-├── docker-compose.yml           # Full stack with Dify
-├── docker-compose-simple.yml    # Simple stack (recommended)
+├── docker-compose.yml           # Simple stack (default/recommended)
+├── docker-compose-full.yml     # Full stack with Dify
 ├── Dockerfile.duckdb           # DuckDB service container
 ├── requirements.txt            # Python dependencies
 ├── setup.sh                    # Automated setup script
@@ -81,7 +81,7 @@ td25-money/
 1. **Start the Simple Stack:**
    ```bash
    cd td25-money
-   docker-compose -f docker-compose-simple.yml up -d
+   docker-compose up -d
    ```
 
 2. **Download AI Model (in background):**
@@ -114,32 +114,31 @@ td25-money/
 
 ### 1. Start the Stack
 
-**Option A: Simple Stack (Recommended - Currently Working)**
+**Option A: Simple Stack (Default - Recommended)**
 ```bash
 # Clone or navigate to the project directory
 cd td25-money
 
 # Start the simplified stack with just Ollama and DuckDB
-docker-compose -f docker-compose-simple.yml up -d
-
-# Check service status
-docker-compose -f docker-compose-simple.yml ps
-
-# View logs if there are issues
-docker-compose -f docker-compose-simple.yml logs -f
-```
-
-**Option B: Full Stack with Dify (Advanced)**
-```bash
-# Use the setup script (handles dependencies properly)
-chmod +x setup.sh
-./setup.sh
-
-# OR manual startup (may have database connection issues)
 docker-compose up -d
 
 # Check service status
 docker-compose ps
+
+# View logs if there are issues
+docker-compose logs -f
+```
+
+**Option B: Full Stack with Dify (Advanced)**
+```bash
+# Start the full stack with Dify
+docker-compose -f docker-compose-full.yml up -d
+
+# Check service status
+docker-compose -f docker-compose-full.yml ps
+
+# View logs if there are issues
+docker-compose -f docker-compose-full.yml logs -f
 ```
 
 ### 2. Download AI Model
@@ -173,7 +172,7 @@ docker exec ollama ollama pull llama3.1
 > **🎉 WORKING SOLUTION:**
 > 
 > ✅ **Simple Stack is Running Successfully!**
-> - Use: `docker-compose -f docker-compose-simple.yml up -d`
+> - Use: `docker-compose up -d` (now the default!)
 > - DuckDB service: ✅ Running with in-memory database  
 > - Ollama AI: ✅ Ready for model download
 > - Jupyter Notebook: ✅ Available at http://localhost:8888
@@ -287,9 +286,9 @@ docker exec ollama ollama pull mistral
    ```bash
    # This is already fixed in the current version using in-memory database
    # If you encounter this, make sure you're using the latest code
-   docker-compose -f docker-compose-simple.yml down
-   docker-compose -f docker-compose-simple.yml build --no-cache
-   docker-compose -f docker-compose-simple.yml up -d
+   docker-compose down
+   docker-compose build --no-cache
+   docker-compose up -d
    ```
 
 2. **Dify Worker Database Connection Error** (Full Stack Only): 
@@ -310,30 +309,30 @@ docker exec ollama ollama pull mistral
 
 6. **Services Not Starting**:
    ```bash
-   # For simple stack
-   docker-compose -f docker-compose-simple.yml down -v
-   docker-compose -f docker-compose-simple.yml up -d
+   # For simple stack (default)
+   docker-compose down -v
+   docker-compose up -d
    
    # For full stack
-   docker-compose down -v
+   docker-compose -f docker-compose-full.yml down -v
    docker volume prune -f
-   docker-compose up -d
+   docker-compose -f docker-compose-full.yml up -d
    ```
 
 ### Useful Commands
 
 ```bash
-# Simple Stack Commands
-docker-compose -f docker-compose-simple.yml ps        # Check service status
-docker-compose -f docker-compose-simple.yml logs      # View all logs
-docker-compose -f docker-compose-simple.yml logs duckdb-service  # View specific service logs
-docker-compose -f docker-compose-simple.yml restart duckdb-service  # Restart specific service
-docker-compose -f docker-compose-simple.yml down      # Stop all services
+# Simple Stack Commands (Default)
+docker-compose ps        # Check service status
+docker-compose logs      # View all logs
+docker-compose logs duckdb-service  # View specific service logs
+docker-compose restart duckdb-service  # Restart specific service
+docker-compose down      # Stop all services
 
 # Full Stack Commands (if using Dify)
-docker-compose ps                                      # Check service status
-docker-compose logs [service-name]                     # View service logs
-docker-compose restart [service-name]                  # Restart specific service
+docker-compose -f docker-compose-full.yml ps                                      # Check service status
+docker-compose -f docker-compose-full.yml logs [service-name]                     # View service logs
+docker-compose -f docker-compose-full.yml restart [service-name]                  # Restart specific service
 docker-compose down -v                                 # Clean up
 
 # Test the API
