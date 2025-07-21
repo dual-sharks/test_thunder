@@ -82,7 +82,17 @@ services:
       - MODE=api
       - LOG_LEVEL=INFO
       - SECRET_KEY=sk-9f73s3ljTXVcMT3Blb3ljTqtsKiGHXVcMT3BlbkFJLK7U
+      - DB_USERNAME=dify
+      - DB_PASSWORD=dify123456
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=dify
       - DATABASE_URL=postgresql://dify:dify123456@postgres:5432/dify
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_USERNAME=
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
       - REDIS_URL=redis://redis:6379
       - CELERY_BROKER_URL=redis://redis:6379/1
       - WEB_API_CORS_ALLOW_ORIGINS=*
@@ -92,6 +102,8 @@ services:
       - VECTOR_STORE=weaviate
       - WEAVIATE_ENDPOINT=http://weaviate:8080
       - WEAVIATE_API_KEY=WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih
+      - PLUGIN_ENABLED=false
+      - PLUGIN_DAEMON_ENABLED=false
     volumes:
       - dify_app_storage:/app/storage
     depends_on:
@@ -111,7 +123,17 @@ services:
       - MODE=worker
       - LOG_LEVEL=INFO
       - SECRET_KEY=sk-9f73s3ljTXVcMT3Blb3ljTqtsKiGHXVcMT3BlbkFJLK7U
+      - DB_USERNAME=dify
+      - DB_PASSWORD=dify123456
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_DATABASE=dify
       - DATABASE_URL=postgresql://dify:dify123456@postgres:5432/dify
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_USERNAME=
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
       - REDIS_URL=redis://redis:6379
       - CELERY_BROKER_URL=redis://redis:6379/1
       - STORAGE_TYPE=local
@@ -119,6 +141,8 @@ services:
       - VECTOR_STORE=weaviate
       - WEAVIATE_ENDPOINT=http://weaviate:8080
       - WEAVIATE_API_KEY=WVF5YThaHlkYwhGUSmCRgsX3tD5ngdN8pkih
+      - PLUGIN_ENABLED=false
+      - PLUGIN_DAEMON_ENABLED=false
     volumes:
       - dify_app_storage:/app/storage
     depends_on:

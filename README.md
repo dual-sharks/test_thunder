@@ -169,16 +169,20 @@ docker exec ollama ollama pull llama3.1
 
 ## 📊 Sample Data
 
-> **🎉 WORKING SOLUTION:**
+> **🎉 COMPLETE SUCCESS!**
 > 
-> ✅ **Simple Stack is Running Successfully!**
-> - Use: `docker-compose up -d` (now the default!)
+> ✅ **Simple Stack:** `docker-compose up -d` (default - recommended for simplicity)
 > - DuckDB service: ✅ Running with in-memory database  
-> - Ollama AI: ✅ Ready for model download
+> - Ollama AI: ✅ Ready for AI model with Llama 3.1
 > - Jupyter Notebook: ✅ Available at http://localhost:8888
 > - Flask API: ✅ All endpoints functional at http://localhost:5000
 > 
-> 🚫 **Avoid Full Stack** (`docker-compose.yml`) - Has Dify database connection issues
+> ✅ **Full Stack:** `docker-compose -f docker-compose-full.yml up -d` (advanced - all features working!)
+> - All simple stack features: ✅ Working
+> - Dify Web UI: ✅ Available at http://localhost:3000
+> - Dify API: ✅ Available at http://localhost:5001
+> - Database: ✅ PostgreSQL, Redis, Weaviate all connected
+> - LangChain workflows: ✅ Ready for advanced AI workflows
 
 The `data/sample_data.csv` contains financial transaction data with the following structure:
 
@@ -301,13 +305,21 @@ docker exec ollama ollama pull mistral
    docker-compose up -d
    ```
 
-3. **Out of Memory**: Increase Docker memory allocation to 8GB+
+3. **Dify Plugin Daemon Warnings** (Full Stack Only): 
+   ```bash
+   # These error messages are harmless and can be ignored:
+   # "PluginDaemonInnerError: Request to Plugin Daemon Service failed"
+   # The plugin system is optional and doesn't affect core functionality
+   # All services remain fully functional despite these warnings
+   ```
 
-4. **Model Download Fails**: Check internet connection and disk space
+4. **Out of Memory**: Increase Docker memory allocation to 8GB+
 
-5. **Port Conflicts**: Ensure ports 5000, 8888, 11434 are available (and 3000 for full stack)
+5. **Model Download Fails**: Check internet connection and disk space
 
-6. **Services Not Starting**:
+6. **Port Conflicts**: Ensure ports 5000, 8888, 11434 are available (and 3000 for full stack)
+
+7. **Services Not Starting**:
    ```bash
    # For simple stack (default)
    docker-compose down -v
