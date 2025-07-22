@@ -134,40 +134,33 @@ def ask_question():
         
         # Generate SQL from natural language
         sql_query = generate_sql_from_question(question)
+        
+        # Execute the generated SQL
+        result = conn.execute(sql_query).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        rows = [dict(zip(columns, row)) for row in result]
+
+        # Generate natural language response
+        response_prompt = f"""
+        Based on this SQL query result for the question "{question}":
+
+        SQL Query: {sql_query}
+        Results: {rows}
+
+        Provide a clear, natural language answer to the original question. Be specific with numbers and insights.
+        """
+
+        ai_response = query_litellm(response_prompt)
 
         return jsonify({
             "success": True,
             "question": question,
             "sql_query": sql_query,
+            "data": rows,
+            "ai_response": ai_response,
+            "row_count": len(rows)
         })
-        
-        # # Execute the generated SQL
-        # result = conn.execute(sql_query).fetchall()
-        # columns = [desc[0] for desc in conn.description]
-        # rows = [dict(zip(columns, row)) for row in result]
-        #
-        # # Generate natural language response
-        # response_prompt = f"""
-        # Based on this SQL query result for the question "{question}":
-        #
-        # SQL Query: {sql_query}
-        # Results: {rows}
-        #
-        # Provide a clear, natural language answer to the original question. Be specific with numbers and insights.
-        # """
-        #
-        # ai_response = query_litellm(response_prompt)
-        #
-        # return jsonify({
-        #     "success": True,
-        #     "question": question,
-        #     "sql_query": sql_query,
-        #     "data": rows,
-        #     "ai_response": ai_response,
-        #     "row_count": len(rows)
-        # })
 
-    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
