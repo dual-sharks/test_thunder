@@ -134,6 +134,7 @@ def ask_question():
         
         # Generate SQL from natural language
         sql_query = generate_sql_from_question(question)
+
         return jsonify({
             "success": True,
             "question": question,
