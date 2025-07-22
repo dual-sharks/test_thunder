@@ -5,7 +5,8 @@ from flask_cors import CORS
 import sys
 import litellm
 from jinja2 import Environment, FileSystemLoader
-
+import requests
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -16,6 +17,7 @@ conn = duckdb.connect(':memory:')
 # Set up the environment to load templates from ./prompt directory
 env = Environment(loader=FileSystemLoader('/app/prompt'))
 sql_prompt_template = env.get_template('sql_generator_prompt_template.jinja')
+
 
 def setup_database():
     """Initialize the database and load CSV data"""
@@ -30,12 +32,27 @@ def setup_database():
 
 def query_litellm(prompt, model="gpt-4-1"):
     print("Sending prompt to model:", prompt)
+
+    url = f"https://litellm.prod-ai.riotgames.io/openai/deployments/{model}/chat/completions"
+
+    headers = {
+        "accept": "application/json",
+        "Content-Type": "application/json",
+        "x-litellm-api-key": "sk-Gdvcor9sHOvqNvWce-CMAQ"
+    }
+
+    data = {
+        "messages": [
+            {
+                "role": "user",
+                "content": f"{prompt}"
+            }
+        ]
+    }
+
     try:
-        response = litellm.completion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response['choices'][0]['message']['content']
+        response = requests.post(url, headers=headers, json=data)
+        return json.loads(response.text)['choices'][0]['message']['content']
     except Exception as e:
         print("🔥 LLM failure:", e)
         return f"Connection Error: {e}"
