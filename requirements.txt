@@ -12,3 +12,4 @@ ollama==0.1.7
 matplotlib
 seaborn
 litellm
+jinja2

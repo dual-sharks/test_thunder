@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY duckdb_service/ ./
 
 # Create necessary directories
-RUN mkdir -p /app/data /app/db
+RUN mkdir -p /app/data /app/db /app/prompt
 
 # Expose ports
 EXPOSE 8888 5000

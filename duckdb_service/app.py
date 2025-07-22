@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import sys
 import litellm
+from jinja2 import Environment, FileSystemLoader
 
 
 app = Flask(__name__)
@@ -12,11 +13,15 @@ CORS(app)
 # Initialize DuckDB connection (in-memory to avoid file locking issues)
 conn = duckdb.connect(':memory:')
 
+# Set up the environment to load templates from ./prompt directory
+env = Environment(loader=FileSystemLoader('/app/prompt'))
+sql_prompt_template = env.get_template('sql_generator_prompt_template.jinja')
+
 def setup_database():
     """Initialize the database and load CSV data"""
     try:
         conn.execute(f"""
-            CREATE OR REPLACE TABLE transactions AS
+            CREATE OR REPLACE TABLE aws_cur_data AS
             SELECT * FROM read_csv_auto('/app/data/sample_data_t25.csv', header=True)
         """)
         print("Database setup completed successfully")
@@ -35,29 +40,10 @@ def query_litellm(prompt, model="gpt-4-1"):
         print("🔥 LLM failure:", e)
         return f"Connection Error: {e}"
 
-
-
-
 def generate_sql_from_question(question):
     """Generate SQL query from natural language question using AI"""
 
-    prompt = f"""
-    You are a SQL expert. Given this database schema for financial transactions:
-    
-    {db_schema}
-    
-    Generate a DuckDB SQL query to answer this question: "{question}"
-    
-    Rules:
-    1. Only return the SQL query, no explanation
-    2. Use proper DuckDB syntax
-    3. Be precise with column names and data types
-    4. Use appropriate aggregations and filters
-    5. Return only the SQL query between triple backticks
-    
-    Question: {question}
-    """
-    
+    prompt = sql_prompt_template.render({'question': question})
     response = query_litellm(prompt)
     
     # Extract SQL from response
@@ -67,7 +53,8 @@ def generate_sql_from_question(question):
         sql = response.split("```")[1].split("```")[0].strip()
     else:
         sql = response.strip()
-    
+
+    print("\nsql generated: ", sql)
     return sql
 
 def get_local_schema():
@@ -130,32 +117,38 @@ def ask_question():
         
         # Generate SQL from natural language
         sql_query = generate_sql_from_question(question)
-        
-        # Execute the generated SQL
-        result = conn.execute(sql_query).fetchall()
-        columns = [desc[0] for desc in conn.description]
-        rows = [dict(zip(columns, row)) for row in result]
-        
-        # Generate natural language response
-        response_prompt = f"""
-        Based on this SQL query result for the question "{question}":
-        
-        SQL Query: {sql_query}
-        Results: {rows}
-        
-        Provide a clear, natural language answer to the original question. Be specific with numbers and insights.
-        """
-        
-        ai_response = query_litellm(response_prompt)
-        
         return jsonify({
             "success": True,
             "question": question,
             "sql_query": sql_query,
-            "data": rows,
-            "ai_response": ai_response,
-            "row_count": len(rows)
         })
+        
+        # # Execute the generated SQL
+        # result = conn.execute(sql_query).fetchall()
+        # columns = [desc[0] for desc in conn.description]
+        # rows = [dict(zip(columns, row)) for row in result]
+        #
+        # # Generate natural language response
+        # response_prompt = f"""
+        # Based on this SQL query result for the question "{question}":
+        #
+        # SQL Query: {sql_query}
+        # Results: {rows}
+        #
+        # Provide a clear, natural language answer to the original question. Be specific with numbers and insights.
+        # """
+        #
+        # ai_response = query_litellm(response_prompt)
+        #
+        # return jsonify({
+        #     "success": True,
+        #     "question": question,
+        #     "sql_query": sql_query,
+        #     "data": rows,
+        #     "ai_response": ai_response,
+        #     "row_count": len(rows)
+        # })
+
     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
