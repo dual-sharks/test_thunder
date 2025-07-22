@@ -13,10 +13,11 @@ services:
       - "5000:5000"  # Flask API
     volumes:
       - ./data:/app/data:ro  # Mount CSV data as read-only
+      - ./prompt:/app/prompt:ro # Mount prompt as read-only
     environment:
       - LITELLM_API_BASE=https://litellm.prod-ai.riotgames.io/
       - LITELLM_MODEL=gpt-4-1
-      - LITELLM_API_KEY=sk-RywMmYwRHCdna6UiKhiGtw
+      - LITELLM_API_KEY=sk-Gdvcor9sHOvqNvWce-CMAQ
     restart: unless-stopped
     networks:
       - ai_network
