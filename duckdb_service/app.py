@@ -89,7 +89,6 @@ def get_local_schema():
             # Use DESCRIBE for a clean, LLM-friendly schema format
             columns_df = conn.execute(f"DESCRIBE {table_name};").df()
             schema_parts.append(f"Table '{table_name}':\n{columns_df.to_string()}\n")
-        conn.close()
         print("✅ Schema received.")
         return "\n".join(schema_parts)
     except Exception as e:
