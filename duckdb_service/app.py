@@ -5,8 +5,52 @@ from flask_cors import CORS
 import sys
 import litellm
 from jinja2 import Environment, FileSystemLoader
-import requests
 import json
+import logging
+
+# Configure logging for container environments
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Force Python to flush stdout immediately (important for containers)
+sys.stdout.reconfigure(line_buffering=True)
+
+def log_and_print(message, level="info", to_stderr=False):
+    """Helper function to both log and print messages to avoid duplication"""
+    # Log using the logging framework
+    if level == "info":
+        logger.info(message)
+    elif level == "error":
+        logger.error(message)
+    elif level == "warning":
+        logger.warning(message)
+    
+    # Print to console with flush for container compatibility
+    output_stream = sys.stderr if to_stderr else sys.stdout
+    print(message, file=output_stream, flush=True)
+
+def call_litellm(messages, model="gpt-4-1", tools=None, tool_choice=None):
+    """Helper function to call LiteLLM with consistent configuration"""
+    return litellm.completion(
+        model=f"{model}",
+        messages=messages,
+        api_base=f"https://litellm.prod-ai.riotgames.io/openai/deployments/{model}",
+        api_key="sk-Gdvcor9sHOvqNvWce-CMAQ",
+        tools=tools,
+        tool_choice=tool_choice,
+        custom_llm_provider="openai"
+    )
+
+# Configure LiteLLM for Riot Games endpoint
+litellm.api_base = "https://litellm.prod-ai.riotgames.io/openai/deployments"
+litellm.api_key = "sk-Gdvcor9sHOvqNvWce-CMAQ"
+os.environ["OPENAI_API_KEY"] = "sk-Gdvcor9sHOvqNvWce-CMAQ"
 
 app = Flask(__name__)
 CORS(app)
@@ -26,35 +70,193 @@ def setup_database():
             CREATE OR REPLACE TABLE aws_cur_data AS
             SELECT * FROM read_csv_auto('/app/data/sample_data_t25.csv', header=True)
         """)
-        print("Database setup completed successfully")
+        log_and_print("Database setup completed successfully")
     except Exception as e:
-        print(f"Error setting up database: {e}")
+        log_and_print(f"Error setting up database: {e}", "error")
 
-def query_litellm(prompt, model="gpt-4-1"):
-    print("Sending prompt to model:", prompt)
+def execute_duckdb_query(sql_query):
+    """Execute a SQL query on DuckDB and return results"""
+    try:
+        result = conn.execute(sql_query).fetchall()
+        columns = [desc[0] for desc in conn.description]
+        rows = [dict(zip(columns, row)) for row in result]
+        return {
+            "success": True,
+            "data": rows,
+            "columns": columns,
+            "row_count": len(rows)
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
-    url = f"https://litellm.prod-ai.riotgames.io/openai/deployments/{model}/chat/completions"
+def get_database_schema():
+    """Get the database schema for function calling"""
+    try:
+        tables = conn.execute("SHOW TABLES;").fetchall()
+        schema_info = {}
+        for table_name_tuple in tables:
+            table_name = table_name_tuple[0]
+            columns_df = conn.execute(f"DESCRIBE {table_name};").df()
+            schema_info[table_name] = columns_df.to_dict('records')
+        return schema_info
+    except Exception as e:
+        return {"error": str(e)}
 
-    headers = {
-        "accept": "application/json",
-        "Content-Type": "application/json",
-        "x-litellm-api-key": "sk-Gdvcor9sHOvqNvWce-CMAQ"
-    }
+def message_to_dict(message):
+    """Convert LiteLLM message object to JSON-serializable dictionary"""
+    if hasattr(message, 'model_dump'):
+        # For newer LiteLLM versions
+        return message.model_dump()
+    elif hasattr(message, 'dict'):
+        # For older versions
+        return message.dict()
+    else:
+        # Fallback manual conversion
+        result = {
+            "role": getattr(message, 'role', 'assistant'),
+            "content": getattr(message, 'content', None)
+        }
+        if hasattr(message, 'tool_calls') and message.tool_calls:
+            result["tool_calls"] = []
+            for tool_call in message.tool_calls:
+                tool_call_dict = {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments
+                    }
+                }
+                result["tool_calls"].append(tool_call_dict)
+        return result
 
-    data = {
-        "messages": [
-            {
-                "role": "user",
-                "content": f"{prompt}"
+def query_litellm(prompt, model="gpt-4-1", use_tools=False):
+    log_and_print(f"Sending prompt to model: {prompt}")
+
+    # Define tools for function calling
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "execute_duckdb_query",
+                "description": "Execute a SQL query on the DuckDB database containing AWS CUR (Cost and Usage Report) data",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sql_query": {
+                            "type": "string",
+                            "description": "The SQL query to execute on the database"
+                        }
+                    },
+                    "required": ["sql_query"]
+                }
             }
-        ]
-    }
+        },
+        {
+            "type": "function", 
+            "function": {
+                "name": "get_database_schema",
+                "description": "Get the schema information for all tables in the database",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+        }
+    ]
+
+    messages = [{"role": "user", "content": prompt}]
 
     try:
-        response = requests.post(url, headers=headers, json=data)
-        return json.loads(response.text)['choices'][0]['message']['content']
+        # Make initial request with or without tools
+        response = call_litellm(
+            messages=messages,
+            model=model,
+            tools=tools if use_tools else None,
+            tool_choice="auto" if use_tools else None
+        )
+        
+        # Handle multiple rounds of function calls
+        max_iterations = 5  # Prevent infinite loops
+        iteration = 0
+        
+        # If tools are not being used, return immediately
+        if not use_tools:
+            message = response.choices[0].message
+            return {
+                "content": message.content,
+                "conversation": messages + [message_to_dict(message)],
+                "iterations": 0
+            }
+        
+        while use_tools and iteration < max_iterations:
+            iteration += 1
+            message = response.choices[0].message
+            
+            # Check if there are tool calls to process
+            if not (hasattr(message, 'tool_calls') and message.tool_calls):
+                # No more tool calls, return the final message
+                return {
+                    "content": message.content,
+                    "conversation": messages + [message_to_dict(message)],
+                    "iterations": iteration
+                }
+            
+            # Add the assistant's message with tool calls to the conversation
+            messages.append(message_to_dict(message))
+            log_and_print(f"🔄 Function calling iteration {iteration}")
+            
+            # Process each tool call
+            for tool_call in message.tool_calls:
+                function_name = tool_call.function.name
+                function_args = json.loads(tool_call.function.arguments)
+                
+                log_and_print(f"🔧 Calling function: {function_name} with args: {function_args}")
+                
+                if function_name == "execute_duckdb_query":
+                    function_result = execute_duckdb_query(function_args["sql_query"])
+                elif function_name == "get_database_schema":
+                    function_result = get_database_schema()
+                else:
+                    function_result = {"error": f"Unknown function: {function_name}"}
+                
+                # Add function result to messages
+                messages.append({
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": function_name,
+                    "content": json.dumps(function_result)
+                })
+            
+            # Get response after function calls (might trigger more function calls)
+            response = call_litellm(
+                messages=messages,
+                model=model,
+                tools=tools,
+                tool_choice="auto"
+            )
+        
+        # If we exit the loop, return the final response
+        final_message = response.choices[0].message
+        if iteration >= max_iterations:
+            log_and_print(f"⚠️ Maximum function calling iterations ({max_iterations}) reached", "warning")
+        
+        # Add the final message to conversation and return
+        messages.append(message_to_dict(final_message))
+        
+        # Return both the final content and the full conversation trace
+        return {
+            "content": final_message.content,
+            "conversation": messages,
+            "iterations": iteration
+        }
+        
     except Exception as e:
-        print("🔥 LLM failure:", e)
+        log_and_print(f"🔥 LLM failure: {e}", "error")
         return f"Connection Error: {e}"
 
 def generate_sql_from_question(question):
@@ -63,15 +265,18 @@ def generate_sql_from_question(question):
     prompt = sql_prompt_template.render({'question': question})
     response = query_litellm(prompt)
     
+    # Handle new response format
+    content = response["content"] if isinstance(response, dict) else response
+    
     # Extract SQL from response
-    if "```sql" in response:
-        sql = response.split("```sql")[1].split("```")[0].strip()
-    elif "```" in response:
-        sql = response.split("```")[1].split("```")[0].strip()
+    if "```sql" in content:
+        sql = content.split("```sql")[1].split("```")[0].strip()
+    elif "```" in content:
+        sql = content.split("```")[1].split("```")[0].strip()
     else:
-        sql = response.strip()
+        sql = content.strip()
 
-    print("\nsql generated: ", sql)
+    log_and_print(f"sql generated: {sql}")
     return sql
 
 def get_local_schema():
@@ -79,7 +284,7 @@ def get_local_schema():
     Connects directly to the DuckDB file to get the schema.
     This is the correct way to get context for the LLM.
     """
-    print("\nGetting database schema locally...")
+    log_and_print("Getting database schema locally...")
     schema_parts = []
     try:
         tables = conn.execute("SHOW TABLES;").fetchall()
@@ -87,10 +292,10 @@ def get_local_schema():
             table_name = table_name_tuple[0]
             columns_df = conn.execute(f"DESCRIBE {table_name};").df()
             schema_parts.append(f"Table '{table_name}':\n{columns_df.to_string()}\n")
-        print("✅ Schema received.")
+        log_and_print("✅ Schema received.")
         return "\n".join(schema_parts)
     except Exception as e:
-        print(f"❌ Error getting local schema: {e}", file=sys.stderr)
+        log_and_print(f"❌ Error getting local schema: {e}", "error", to_stderr=True)
         return "Could not retrieve schema."
 
 @app.route('/health', methods=['GET'])
@@ -151,16 +356,56 @@ def ask_question():
         """
 
         ai_response = query_litellm(response_prompt)
+        
+        # Handle new response format
+        ai_content = ai_response["content"] if isinstance(ai_response, dict) else ai_response
 
         return jsonify({
             "success": True,
             "question": question,
             "sql_query": sql_query,
             "data": rows,
-            "ai_response": ai_response,
+            "ai_response": ai_content,
             "row_count": len(rows)
         })
 
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/ask-with-tools', methods=['POST'])
+def ask_question_with_tools():
+    """Ask a natural language question using function calling to directly query the database"""
+    try:
+        data = request.get_json()
+        question = data.get('question', '')
+
+        if not question:
+            return jsonify({"error": "No question provided"}), 400
+        
+        # Enhanced prompt that encourages the model to use tools
+        enhanced_prompt = f"""
+You have access to a DuckDB database with AWS Cost and Usage Report (CUR) data. 
+The user's question is: "{question}"
+
+Please use the available tools to:
+1. First, get the database schema to understand the available tables and columns
+2. Then execute appropriate SQL queries with execute_duckdb_query to answer the question
+3. Provide a clear, comprehensive answer based on the data you retrieve
+
+Question: {question}
+"""
+        
+        # Use function calling
+        ai_response = query_litellm(enhanced_prompt, use_tools=True)
+        
+        return jsonify({
+            "success": True,
+            "question": question,
+            "ai_response": ai_response["content"] if isinstance(ai_response, dict) else ai_response,
+            "conversation": ai_response.get("conversation", []) if isinstance(ai_response, dict) else [],
+            "iterations": ai_response.get("iterations", 0) if isinstance(ai_response, dict) else 0
+        })
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -169,9 +414,28 @@ def test_litellm_connection():
     """Test connectivity to the LLM (e.g., GPT-4-1 via LiteLLM)"""
     try:
         response = query_litellm("Say hello!")
+        content = response["content"] if isinstance(response, dict) else response
         return jsonify({
             "success": True,
-            "llm_response": response
+            "llm_response": content
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route('/test-tools', methods=['GET'])
+def test_function_calling():
+    """Test function calling capabilities"""
+    try:
+        test_prompt = "What tables are available in the database? Please check the schema and tell me about the data structure."
+        response = query_litellm(test_prompt, use_tools=True)
+        return jsonify({
+            "success": True,
+            "llm_response": response["content"] if isinstance(response, dict) else response,
+            "conversation": response.get("conversation", []) if isinstance(response, dict) else [],
+            "iterations": response.get("iterations", 0) if isinstance(response, dict) else 0
         })
     except Exception as e:
         return jsonify({
@@ -237,9 +501,12 @@ def get_categories():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
+    log_and_print("🚀 Starting DuckDB AI Service...")
+    
     setup_database()
     
     db_schema = get_local_schema()
-    print(db_schema)
+    log_and_print(f"Database schema: {db_schema}")
 
+    log_and_print("🌟 Service ready - starting Flask app...")
     app.run(host='0.0.0.0', port=5000, debug=True)
