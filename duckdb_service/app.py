@@ -35,16 +35,17 @@ def log_and_print(message, level="info", to_stderr=False):
     output_stream = sys.stderr if to_stderr else sys.stdout
     print(message, file=output_stream, flush=True)
 
-def call_litellm(messages, model="gpt-4-1", tools=None, tool_choice=None):
+def call_litellm(messages, model="gpt-4o", tools=None, tool_choice=None):
     """Helper function to call LiteLLM with consistent configuration"""
     return litellm.completion(
-        model=f"{model}",
+        model=model,
         messages=messages,
-        api_base=f"https://litellm.prod-ai.riotgames.io/openai/deployments/{model}",
-        api_key="sk-Gdvcor9sHOvqNvWce-CMAQ",
+        # api_base=f"https://litellm.prod-ai.riotgames.io/openai/deployments/{model}",  # Whitelisted
+        # api_key="sk-Gdvcor9sHOvqNvWce-CMAQ",  # Internal Riot key
+        api_key=os.getenv("OPENAI_API_KEY", "your-openai-api-key-here"),  # Use your OpenAI key
         tools=tools,
         tool_choice=tool_choice,
-        custom_llm_provider="openai"
+        # custom_llm_provider="openai"  # Let LiteLLM auto-detect
     )
 
 # Configure LiteLLM for Riot Games endpoint
@@ -369,4 +370,4 @@ if __name__ == '__main__':
     print(get_database_schema_pretty())
 
     log_and_print("🌟 Service ready - starting Flask app...")
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
